@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Carga de Fichas - M.I. Servicio PC</title>
+  <!-- Librería para generar la captura de pantalla automáticamente -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; max-width: 500px; margin: auto; background-color: #f4f4f9; }
     h2 { color: #333; text-align: center; }
@@ -13,9 +15,47 @@
     .btn-submit { background-color: #28a745; color: white; }
     .btn-view { background-color: #007bff; color: white; }
     .btn-close { background-color: #dc3545; color: white; }
-    #tablaDatos { margin-top: 20px; width: 100%; border-collapse: collapse; background: white; }
+    .btn-capture { background-color: #6f42c1; color: white; }
+    
+    #tablaDatos { margin-top: 15px; width: 100%; border-collapse: collapse; background: white; }
     #tablaDatos th, #tablaDatos td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 14px; }
     #tablaDatos th { background-color: #f2f2f2; }
+    
+    /* Estilo para destacar la fila de totales en la tabla de la app */
+    .fila-totales {
+      font-weight: bold;
+      background-color: #e9ecef;
+      border-top: 2px solid #ccc;
+    }
+
+    /* Modal / Recuadro para Cierre de Caja */
+    .modal-cierre {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      padding: 15px;
+      overflow-y: auto;
+      z-index: 1000;
+    }
+    .modal-contenido {
+      background: white;
+      max-width: 450px;
+      margin: 30px auto;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    .resumen-card {
+      background: #ffffff;
+      padding: 15px;
+      border: 2px solid #28a745;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .resumen-card h3 { margin-top: 0; text-align: center; color: #28a745; }
+    .resumen-item { display: flex; justify-content: space-between; padding: 6px 0; border-b: 1px dashed #eee; font-size: 15px; }
+    .resumen-item strong { color: #333; }
   </style>
 </head>
 <body>
@@ -36,21 +76,43 @@
     <input type="number" id="fichasFreeRecomendacion" required>
 
     <label>PREMIOS</label>
-    <input type="text" id="premios" required>
+    <input type="number" id="premios" required>
 
     <button type="button" class="btn btn-submit" onclick="enviarDatos()">Enviar Datos</button>
   </form>
 
   <button type="button" class="btn btn-view" onclick="verDatos()">Ver Datos Cargados</button>
-  <button type="button" class="btn btn-close" onclick="cerrarDia()">Cerrar Día</button>
+  <button type="button" class="btn btn-close" onclick="prepararCierreDia()">Cierre de Caja / Cerrar Día</button>
 
   <div id="contenedorTabla" style="display:none;">
     <h3>Registros Cargados Hoy</h3>
     <table id="tablaDatos"></table>
   </div>
 
+  <!-- MODAL DE RESUMEN DE CIERRE -->
+  <div id="modalCierre" class="modal-cierre">
+    <div class="modal-contenido">
+      
+      <!-- Área a capturar -->
+      <div id="areaCaptura" class="resumen-card">
+        <h3>RESUMEN CIERRE DE CAJA</h3>
+        <p style="text-align:center; font-size:12px; color:#666; margin-bottom:15px;" id="fechaHoraCierre"></p>
+        
+        <div class="resumen-item"><span>Fichas Cargadas:</span> <strong id="sumCargadas">0</strong></div>
+        <div class="resumen-item"><span>Fichas Free:</span> <strong id="sumFree">0</strong></div>
+        <div class="resumen-item"><span>Fichas Free Recomendación:</span> <strong id="sumFreeRecom">0</strong></div>
+        <div class="resumen-item"><span>Premios:</span> <strong id="sumPremios">0</strong></div>
+      </div>
+
+      <button type="button" class="btn btn-capture" onclick="descargarCaptura()">📸 Descargar Captura de Pantalla</button>
+      <button type="button" class="btn btn-submit" onclick="confirmarCierreFinal()">✅ Confirmar y Guardar en Google Sheets</button>
+      <button type="button" class="btn btn-close" onclick="cerrarModal()">Cancelar</button>
+    </div>
+  </div>
+
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxd8_YB_d2oh1QF5bAFAIHCTkp01RLpnR2bGsTi9Q3VizvhD7V-dj9_hAx7muPYfwTA/exec";
+    let totalesCalculados = null;
 
     function enviarDatos() {
       const data = {
@@ -80,22 +142,99 @@
       fetch(SCRIPT_URL)
         .then(response => response.json())
         .then(data => {
+          if (!data || data.length === 0) return;
+
+          let sumB = 0, sumC = 0, sumD = 0, sumE = 0;
           let tabla = "";
+
           data.forEach((row, index) => {
-            tabla += "<tr>";
-            row.forEach(cell => {
-              tabla += index === 0 ? `<th>${cell}</th>` : `<td>${cell}</td>`;
-            });
-            tabla += "</tr>";
+            if (index === 0) {
+              tabla += "<tr>";
+              row.forEach(cell => { tabla += `<th>${cell}</th>`; });
+              tabla += "</tr>";
+            } else {
+              tabla += "<tr>";
+              row.forEach(cell => { tabla += `<td>${cell}</td>`; });
+              tabla += "</tr>";
+
+              sumB += parseFloat(row[1]) || 0;
+              sumC += parseFloat(row[2]) || 0;
+              sumD += parseFloat(row[3]) || 0;
+              sumE += parseFloat(row[4]) || 0;
+            }
           });
+
+          if (data.length > 1) {
+            tabla += `<tr class="fila-totales">
+              <td>TOTALES</td>
+              <td>${sumB}</td>
+              <td>${sumC}</td>
+              <td>${sumD}</td>
+              <td>${sumE}</td>
+            </tr>`;
+          }
+
           document.getElementById('tablaDatos').innerHTML = tabla;
           document.getElementById('contenedorTabla').style.display = 'block';
         });
     }
 
-    function cerrarDia() {
-      if (confirm("¿Estás seguro de cerrar el día? Se creará la pestaña del día en Google Sheets y se limpiará la planilla principal para mañana.")) {
-        const data = { action: "cerrarDia" };
+    function prepararCierreDia() {
+      fetch(SCRIPT_URL)
+        .then(response => response.json())
+        .then(data => {
+          if (!data || data.length <= 1) {
+            alert("No hay registros cargados hoy para realizar el cierre.");
+            return;
+          }
+
+          let sumB = 0, sumC = 0, sumD = 0, sumE = 0;
+
+          for (let i = 1; i < data.length; i++) {
+            sumB += parseFloat(data[i][1]) || 0;
+            sumC += parseFloat(data[i][2]) || 0;
+            sumD += parseFloat(data[i][3]) || 0;
+            sumE += parseFloat(data[i][4]) || 0;
+          }
+
+          totalesCalculados = {
+            fichasCargadas: sumB,
+            fichasFree: sumC,
+            fichasFreeRecomendacion: sumD,
+            premios: sumE
+          };
+
+          document.getElementById('sumCargadas').innerText = sumB;
+          document.getElementById('sumFree').innerText = sumC;
+          document.getElementById('sumFreeRecom').innerText = sumD;
+          document.getElementById('sumPremios').innerText = sumE;
+          document.getElementById('fechaHoraCierre').innerText = "Fecha: " + new Date().toLocaleString();
+
+          document.getElementById('modalCierre').style.display = 'block';
+        })
+        .catch(err => alert("Error al obtener datos para el cierre de caja."));
+    }
+
+    function cerrarModal() {
+      document.getElementById('modalCierre').style.display = 'none';
+    }
+
+    function descargarCaptura() {
+      const area = document.getElementById('areaCaptura');
+      html2canvas(area).then(canvas => {
+        const link = document.createElement('a');
+        link.download = `Cierre_Caja_${new Date().toISOString().slice(0,10)}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    }
+
+    function confirmarCierreFinal() {
+      if (confirm("¿Confirmar cierre definitivo? Se guardará la pestaña como 'Cierre [Fecha]' y se limpiará la hoja.")) {
+        const data = { 
+          action: "cerrarDia",
+          totales: totalesCalculados
+        };
 
         fetch(SCRIPT_URL, {
           method: 'POST',
@@ -103,7 +242,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data)
         }).then(() => {
-          alert("¡Día cerrado con éxito! Los datos se guardaron en la nueva pestaña y la hoja principal quedó lista para el próximo día.");
+          alert("¡Día cerrado con éxito! La hoja de cierre se guardó correctamente.");
+          cerrarModal();
           document.getElementById('contenedorTabla').style.display = 'none';
           document.getElementById('tablaDatos').innerHTML = "";
         }).catch(err => alert("Error al cerrar el día"));
